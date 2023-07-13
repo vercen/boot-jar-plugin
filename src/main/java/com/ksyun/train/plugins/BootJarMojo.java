@@ -29,7 +29,6 @@ import java.util.zip.ZipOutputStream;
  * @date 2023/7/12 13:05
  */
 
-// 目标名统一为bootJar
 @Mojo(name = "bootJar")
 public class BootJarMojo extends AbstractMojo {
     // 可自由获取maven内置变量
