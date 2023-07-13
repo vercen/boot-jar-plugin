@@ -8,24 +8,22 @@
 
    `````xml
    <build>
-       <plugins>
-           <plugin>
-               <groupId>com.ksyun.plugin</groupId>
-               <artifactId>boot-jar-plugin</artifactId>
-               <version>1.0</version>
-               <executions>
-                   <execution>
-                       <goals>
-                           <goal>bootJar</goal>
-                       </goals>
-                   </execution>
-               </executions>
-               <configuration>
-                   <main.class>com.example.MainClass</main.class>
-               </configuration>
-           </plugin>
-       </plugins>
-   </build>
+        <plugins>
+            <plugin>
+                <groupId>com.ksyun.train.plugins</groupId>
+                <artifactId>bootJar-maven-plugin</artifactId>
+                <version>1.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>bootJar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
    ```
 
    其中 `main.class` 参数指定了项目的主类名。
@@ -33,7 +31,7 @@
 2. 在项目的根目录下执行 Maven 命令：
 
    ````
-   mvn com.ksyun.plugin:boot-jar-plugin:bootJar
+   mvn com.ksyun.train.plugins:bootJar-maven-plugin:bootJar
    ````
    如果没有在pom文件中指明主类，可以通过以下命令指定主类,并且打包：
    ````
