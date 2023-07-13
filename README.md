@@ -1,6 +1,6 @@
 # BootJarMoj插件
 
-这是一个 Maven 插件，用于将 Java 项目打包成可执行的 JAR 文件和 ZIP 文件。该插件可通过 Maven 命令 `mvn com.ksyun.plugin:boot-jar-plugin:bootJar` 来调用。
+这是一个 Maven 插件，用于将 Java 项目打包成可执行的 JAR 文件和 ZIP 文件。该插件可通过 Maven 命令 `mvn com.ksyun.train.plugins:bootJar-maven-plugin:bootJar` 来调用。
 
 ## 使用方法
 
