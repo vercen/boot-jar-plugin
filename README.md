@@ -24,7 +24,7 @@
             </plugin>
         </plugins>
     </build>
-   ```
+   `````
 
    其中 `main.class` 参数指定了项目的主类名。
 
