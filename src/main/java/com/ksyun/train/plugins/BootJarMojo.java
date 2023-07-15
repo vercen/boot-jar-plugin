@@ -12,14 +12,15 @@ import org.codehaus.plexus.util.FileUtils;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -29,27 +30,31 @@ import java.util.zip.ZipOutputStream;
  * @date 2023/7/12 13:05
  */
 
+/**
+ * BootJarMojo是一个Maven插件，它创建了一个可启动的JAR文件，其中包含了所有项目依赖。
+ */
 @Mojo(name = "bootJar")
 public class BootJarMojo extends AbstractMojo {
-    // 可自由获取maven内置变量
+
+    private static final String LIB_DIR_NAME = "lib";
+    private static final String ZIP_FILE_EXTENSION = ".zip";
+    private static final String JAR_FILE_EXTENSION = ".jar";
+
     @Parameter(
             defaultValue = "${settings.localRepository}",
             required = true
     )
     private String localRepository;
 
-    // 接收通过命令mvn -Dmain.class=com.ksyun.train.App传递的参数， 请勿修改参数名
     @Parameter(
             property = "main.class",
             required = true
     )
     private String mainClass;
-    // maven项目信息，需要的数据基本都可以从此对象中获取，
-    // 请自行调试打印观察project信息，开发过程中可利用json工具打印该对象信息
+
     @Component
     protected MavenProject project;
 
-    //插件核心逻辑
     @Override
     public void execute() throws MojoFailureException {
         getLog().info("project localRepository is " + localRepository);
@@ -60,51 +65,37 @@ public class BootJarMojo extends AbstractMojo {
         File targetDirectory = new File(baseDir, "target");
         File classesDirectory = new File(targetDirectory, "classes");
         getLog().info("project classes dir is " + classesDirectory.getAbsolutePath());
-        // get project dependency jars, ignore dependency transfer, only onedemo
-        List<File> dependencyFiles = new ArrayList<File>();
-        for (Artifact artifact : project.getDependencyArtifacts()) {
-            dependencyFiles.add(artifact.getFile());
-        }
+
+        List<File> dependencyFiles = project.getDependencyArtifacts().stream().map(Artifact::getFile).collect(Collectors.toList());
 
         try {
-            // Step 1: 创建一个临时目录
-            File tempDir = new File(targetDirectory, "temp");
-            if (!tempDir.exists()) {
-                tempDir.mkdirs();
-            }
+            // 创建临时目录
+            File tempDir = Files.createDirectories(targetDirectory.toPath().resolve("temp")).toFile();
 
-            // Step 2: 创建一个可执行的JAR文件
-            File jarFile = new File(tempDir, artifactId + "-" + version + ".jar");
-            StringBuilder classPath = new StringBuilder();
+            // 创建可执行的JAR文件并指定依赖的classpath
+            File jarFile = new File(tempDir, artifactId + "-" + version + JAR_FILE_EXTENSION);
+            String classPath = dependencyFiles.stream().map(f -> LIB_DIR_NAME + "/" + f.getName()).collect(Collectors.joining(" "));
+            createExecutableJar(jarFile, classesDirectory, mainClass, classPath);
+
+            // 将依赖文件复制到lib目录下
+            File libDir = Files.createDirectories(tempDir.toPath().resolve(LIB_DIR_NAME)).toFile();
             for (File dependencyFile : dependencyFiles) {
-                classPath.append("lib/").append(dependencyFile.getName()).append(" ");
-            }
-            createExecutableJar(jarFile, classesDirectory, mainClass, classPath.toString());
-
-            // Step 3: 复制所有依赖的JAR文件到临时目录中的lib子目录
-            File libDir = new File(tempDir, "lib");
-            if (!libDir.exists()) {
-                libDir.mkdirs();
-            }
-            for (File dependencyFile : dependencyFiles) {
-                Files.copy(dependencyFile.toPath(), new File(libDir, dependencyFile.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(dependencyFile.toPath(), libDir.toPath().resolve(dependencyFile.getName()), StandardCopyOption.REPLACE_EXISTING);
             }
 
-            // Step 4: 将可执行的JAR文件和lib目录一起打包成ZIP文件
-            File zipFile = new File(targetDirectory, artifactId + "-" + version + ".zip");
+            // 创建zip文件
+            File zipFile = new File(targetDirectory, artifactId + "-" + version + ZIP_FILE_EXTENSION);
             createZipFile(zipFile, tempDir);
 
-            // Step 5: 删除不需要的文件和目录
-            FileUtils.deleteDirectory(new File(targetDirectory, "generated-sources"));
-            FileUtils.deleteDirectory(new File(targetDirectory, "maven-archiver"));
-            FileUtils.deleteDirectory(new File(targetDirectory, "maven-status"));
-            FileUtils.deleteDirectory(new File(targetDirectory, "surefire-reports"));
-            FileUtils.deleteDirectory(new File(targetDirectory, "test-classes"));
-            FileUtils.deleteDirectory(new File(targetDirectory,"generated-test-sources"));
-            new File(targetDirectory, artifactId + "-" + version + ".jar").delete();
+            // 删除生成的目录和文件
+            String[] directoriesToDelete = {"generated-sources", "maven-archiver", "maven-status", "surefire-reports", "test-classes", "generated-test-sources"};
+            for (String directory : directoriesToDelete) {
+                FileUtils.deleteDirectory(new File(targetDirectory, directory));
+            }
+            new File(targetDirectory, artifactId + "-" + version + JAR_FILE_EXTENSION).delete();
 
-            // Step 6: 清理临时目录
-            jarFile.delete();
+            // 删除临时目录和文件
+            Files.deleteIfExists(jarFile.toPath());
             FileUtils.deleteDirectory(tempDir);
 
         } catch (Exception e) {
@@ -112,40 +103,62 @@ public class BootJarMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * 创建可执行的JAR文件
+     *
+     * @param jarFile          JAR文件
+     * @param classesDirectory 项目类文件目录
+     * @param mainClass        主类
+     * @param classPath        依赖的classpath
+     * @throws IOException
+     */
     private void createExecutableJar(File jarFile, File classesDirectory, String mainClass, String classPath) throws IOException {
         Manifest manifest = new Manifest();
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, mainClass);
         manifest.getMainAttributes().put(Attributes.Name.CLASS_PATH, classPath);
-        try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(jarFile), manifest)) {
-            Files.walkFileTree(classesDirectory.toPath(), new SimpleFileVisitor<Path>() {
-                @Override
 
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    Path relativePath = classesDirectory.toPath().relativize(file);
-                    JarEntry entry = new JarEntry(relativePath.toString().replace("\\", "/"));
-                    jos.putNextEntry(entry);
-                    Files.copy(file, jos);
-                    jos.closeEntry();
-                    return FileVisitResult.CONTINUE;
-                }
-            });
+        try (JarOutputStream jos = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
+            // 遍历项目类文件并添加到JAR文件中
+            Files.walk(classesDirectory.toPath())
+                    .filter(Files::isRegularFile)
+                    .forEach(file -> {
+                        try {
+                            Path relativePath = classesDirectory.toPath().relativize(file);
+                            JarEntry entry = new JarEntry(relativePath.toString().replace("\\", "/"));
+                            jos.putNextEntry(entry);
+                            Files.copy(file, jos);
+                            jos.closeEntry();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
         }
     }
 
+    /**
+     * 创建zip文件
+     *
+     * @param zipFile         zip文件
+     * @param directoryToZip  需要压缩的目录
+     * @throws IOException
+     */
     private void createZipFile(File zipFile, File directoryToZip) throws IOException {
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFile))) {
-            Files.walkFileTree(directoryToZip.toPath(), new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    Path relativePath = directoryToZip.toPath().relativize(file);
-                    ZipEntry entry = new ZipEntry(relativePath.toString());
-                    zos.putNextEntry(entry);
-                    Files.copy(file, zos);
-                    zos.closeEntry();
-                    return FileVisitResult.CONTINUE;
-                }
-            });
+            // 遍历目录下的文件并添加到zip文件中
+            Files.walk(directoryToZip.toPath())
+                    .filter(Files::isRegularFile)
+                    .forEach(f -> {
+                        try {
+                            Path relativePath = directoryToZip.toPath().relativize(f);
+                            ZipEntry entry = new ZipEntry(relativePath.toString());
+                            zos.putNextEntry(entry);
+                            Files.copy(f, zos);
+                            zos.closeEntry();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
         }
     }
 }
